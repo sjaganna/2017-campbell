@@ -1,0 +1,149 @@
+---
+title: "analysis.R"
+author: "Sujatha Jagannathan"
+date: "July 27, 2016"
+output: html_document
+---
+Notes on preprocessing in bash
+*1. Open excel sheets and save as tab-delimited text
+*2. grep the peptide data alone (using "High")
+*3. sort and save as new files
+
+Data analysis pipeline
+
+Amy on June 28, 2016:
+I talked to Stephen and he'd like the MYOD samples included. So, I think this is the final request:
+
+- Include rep1 (AC101415) and rep2 (AC120815) only. rep1 will have 3 samples (MYOD1, D4Z4_2, and D4Z4_1+_3 1%FA combined with D4Z4_1+_3 2%FA computationally). rep 2 will have 4 samples (MYOD1, D4Z4_1 combined with D4Z4_3 computationally, D4Z4_1+_3, and D4Z4_3+_1). 
+- Determine the number of unique peptides for each ID'd protein using your pseudocount metric.
+- Map all to geneid to eliminate fragments, duplications, and to streamline assigning a FUNCTION from the UniProt database.
+- Keep those proteins that have at least one psm in at least two replicates. 
+- Exclude proteins in the CRAPome database (?).
+- Keep only nuclear proteins (use FUNCTION and/or SUBCELLULAR LOCATION terms nucleus, nuclear, nucleoplasm, chromosome...).
+
+1. Data input
+```{r}
+blank1 <- read.delim("/Volumes/homes/cold/sjaganna/projects/amy_proteomics/blank1", header=FALSE, stringsAsFactors=FALSE)
+`D4Z4_1_2` <- read.delim("/Volumes/homes/cold/sjaganna/projects/amy_proteomics/D4Z4_1_2", header=FALSE, stringsAsFactors=FALSE)
+`D4Z4_1plus3_1FA_1` <- read.delim("/Volumes/homes/cold/sjaganna/projects/amy_proteomics/D4Z4_1plus3_1FA_1", header=FALSE, stringsAsFactors=FALSE)
+`D4Z4_1plus3_2` <- read.delim("/Volumes/homes/cold/sjaganna/projects/amy_proteomics/D4Z4_1plus3_2", header=FALSE, stringsAsFactors=FALSE)
+`D4Z4_1plus3_2FA_1` <- read.delim("/Volumes/homes/cold/sjaganna/projects/amy_proteomics/D4Z4_1plus3_2FA_1", header=FALSE, stringsAsFactors=FALSE)
+`D4Z4_2_0` <- read.delim("/Volumes/homes/cold/sjaganna/projects/amy_proteomics/D4Z4_2_0", header=FALSE, stringsAsFactors=FALSE)
+`D4Z4_2_1` <- read.delim("/Volumes/homes/cold/sjaganna/projects/amy_proteomics/D4Z4_2_1", header=FALSE, stringsAsFactors=FALSE)
+`D4Z4_3_2` <- read.delim("/Volumes/homes/cold/sjaganna/projects/amy_proteomics/D4Z4_3_2", header=FALSE, stringsAsFactors=FALSE)
+`D4Z4_3plus1_2` <- read.delim("/Volumes/homes/cold/sjaganna/projects/amy_proteomics/D4Z4_3plus1_2", header=FALSE, stringsAsFactors=FALSE)
+`MYOD1_0` <- read.delim("/Volumes/homes/cold/sjaganna/projects/amy_proteomics/MYOD1_0", header=FALSE, stringsAsFactors=FALSE)
+`MYOD1_1` <- read.delim("/Volumes/homes/cold/sjaganna/projects/amy_proteomics/MYOD1_1", header=FALSE, stringsAsFactors=FALSE)
+`MYOD1_2` <- read.delim("/Volumes/homes/cold/sjaganna/projects/amy_proteomics/MYOD1_2", header=FALSE, stringsAsFactors=FALSE)
+```
+
+2. Merge and subset data: the datasets are named identical to the names Amy had given, with the prefix rep0, rep1 and rep2 added for the three replicates. 
+```{r}
+datasets <- c("blank1", "D4Z4_1_2", "D4Z4_1plus3_1FA_1", "D4Z4_1plus3_2", "D4Z4_1plus3_2FA_1", "D4Z4_2_0", "D4Z4_2_1", "D4Z4_3_2", "D4Z4_3plus1_2", "MYOD1_0", "MYOD1_1", "MYOD1_2")
+
+enchip_data.d4z4.rep1 <- cbind(D4Z4_1_2, sample = "rep1_1_D4Z4_1_2")
+enchip_data.d4z4.rep2 <- rbind(
+                     cbind(D4Z4_1plus3_1FA_1, sample = "rep2_1_D4Z4_1plus3_1FA"), 
+                     cbind(D4Z4_1plus3_2FA_1, sample = "rep2_1_D4Z4_1plus3_2FA"))
+enchip_data.d4z4.rep3 <- rbind(
+                     cbind(D4Z4_3_2, sample = "rep3_2_D4Z4_3"), 
+                     cbind(D4Z4_1_2, sample = "rep3_2_D4Z4_1"))
+enchip_data.d4z4.rep4 <- cbind(D4Z4_1plus3_2, sample = "rep4_2_D4Z4_1plus3")
+enchip_data.d4z4.rep5 <- cbind(D4Z4_3plus1_2, sample = "rep5_2_D4Z4_3plus1")
+
+enchip_data.myod.rep1 <- cbind(MYOD1_1, sample = "rep1_MYOD1_1")
+enchip_data.myod.rep2 <- cbind(MYOD1_2, sample = "rep2_MYOD1_2")
+
+names(enchip_data.d4z4.rep1) <-   c("A1", "A2", "sequence",  "npsms",	"nproteins",	"nproteingroups",	"uniprotid",	"modifications", 	"cn", "qvalue", "pepscore",	"xcorr",	"charge",	"da",	"ppm",	"rt",	"nmissiedcleavages", "sample")
+names(enchip_data.d4z4.rep2) <-   c("A1", "A2", "sequence",  "npsms",  "nproteins",	"nproteingroups",	"uniprotid",	"modifications", 	"cn", "qvalue", "pepscore",	"xcorr",	"charge",	"da",	"ppm",	"rt",	"nmissiedcleavages", "sample")
+names(enchip_data.d4z4.rep3) <-   c("A1", "A2", "sequence",  "npsms",  "nproteins",	"nproteingroups",	"uniprotid",	"modifications", 	"cn", "qvalue", "pepscore",	"xcorr",	"charge",	"da",	"ppm",	"rt",	"nmissiedcleavages", "sample")
+names(enchip_data.d4z4.rep4) <-   c("A1", "A2", "sequence",  "npsms",  "nproteins",	"nproteingroups",	"uniprotid",	"modifications", 	"cn", "qvalue", "pepscore",	"xcorr",	"charge",	"da",	"ppm",	"rt",	"nmissiedcleavages", "sample")
+names(enchip_data.d4z4.rep5) <-   c("A1", "A2", "sequence",  "npsms",  "nproteins",	"nproteingroups",	"uniprotid",	"modifications", 	"cn", "qvalue", "pepscore",	"xcorr",	"charge",	"da",	"ppm",	"rt",	"nmissiedcleavages", "sample")
+names(enchip_data.myod.rep1) <-   c("A1", "A2", "sequence",  "npsms",  "nproteins",	"nproteingroups",	"uniprotid",	"modifications", 	"cn", "qvalue", "pepscore",	"xcorr",	"charge",	"da",	"ppm",	"rt",	"nmissiedcleavages", "sample")
+names(enchip_data.myod.rep2) <-   c("A1", "A2", "sequence",  "npsms",  "nproteins",	"nproteingroups",	"uniprotid",	"modifications", 	"cn", "qvalue", "pepscore",	"xcorr",	"charge",	"da",	"ppm",	"rt",	"nmissiedcleavages", "sample")
+
+enchip_data.d4z4.rep1 <- enchip_data.d4z4.rep1[, c(3:8, 18)]
+enchip_data.d4z4.rep2 <- enchip_data.d4z4.rep2[, c(3:8, 18)]
+enchip_data.d4z4.rep3 <- enchip_data.d4z4.rep3[, c(3:8, 18)]
+enchip_data.d4z4.rep4 <- enchip_data.d4z4.rep4[, c(3:8, 18)]
+enchip_data.d4z4.rep5 <- enchip_data.d4z4.rep5[, c(3:8, 18)]
+enchip_data.myod.rep1 <- enchip_data.myod.rep1[, c(3:8, 18)]
+enchip_data.myod.rep2 <- enchip_data.myod.rep2[, c(3:8, 18)]
+
+```
+
+3. Clean up data
+```{r}
+library("dplyr")
+enchip_data  <- tbl_df(rbind(enchip_data.d4z4.rep1, enchip_data.d4z4.rep2, enchip_data.d4z4.rep3, enchip_data.d4z4.rep4, enchip_data.d4z4.rep5, enchip_data.myod.rep1, enchip_data.myod.rep2))
+
+library("stringr")
+enchip_data.new <- enchip_data  %>%
+  mutate(sequence=str_to_upper(sequence)) %>% #convert peptide sequence to upper case for string matching
+  filter(uniprotid != "") %>%
+  filter(nproteingroups == 1)
+
+```
+
+4. Export Uniprot ID to get geneid and location
+```{r}
+uniprot.ids.tomap <- data.frame(enchip_data.new$uniprotid) %>% unique()
+write.csv(uniprot.ids.tomap, file="/Volumes/homes/cold/sjaganna/projects/amy_proteomics/uniprot.ids.tomap.csv")
+
+#used uniprot id mapping to get the information for all uniprot ids
+uniprot.ids.mapped2 <- read.delim2("/Volumes/homes/cold/sjaganna/projects/amy_proteomics/uniprot.ids.mapped2.txt", stringsAsFactors=FALSE)
+uniprot.ids.mapped <- uniprot.ids.mapped2[, c(1:4, 5, 7:8)]
+names(uniprot.ids.mapped) <- c("uniprotid", "id", "genename", "entry", "protein.name", "go_cc", "location")
+uniprot.ids.mapped <- rbind(uniprot.ids.mapped, c("FLAG_dCas_HA_NLS", "dCas9", "dCas9", "dCas9", "dCas9", "nucleus", "nucleus"))
+enchip_data.uniprot <- left_join(enchip_data.new, uniprot.ids.mapped, by = "uniprotid")
+
+```
+
+5. Summarize and filter out nuclear proteins
+```{r}
+summary.d4z4 <-  enchip_data.uniprot %>% group_by(sample, genename) %>% summarize(psuedoquant = sum(npsms))
+
+enchip_data.nucleus <- filter(enchip_data.uniprot, grepl("Nucleus|Chromosome|nucle|chromosom",location)) 
+
+summary.d4z4.nucleus <-  enchip_data.nucleus %>% group_by(sample, genename) %>% summarize(psuedoquant = sum(npsms))
+
+```
+
+
+6. Define Proteins of interest
+```{r}
+genes <- c(
+  #NuRD components
+  "HDAC1","HDAC2", "RBBP7", "RBBP4", "MTA1", "MTA2", "MTA3", "MBD2", "MBD3", "CHD3", "CHD4", 
+  #Multi-layered” components (based on Yang et al.)
+  "ASF1A", "ASF1B", "CHAF1A", "CHAF1B", "SETDB1", "KDM1A", "TRIM28", "ZFP809", "SUMO2", 
+  #Other repressors of interest
+  "SIN3A", "SIN3B", "ATF7IP", "MBD1", 
+  #D4Z4-associated (previously known)
+  "SMCHD1", "YY1", "HMGB2", "NCL", "SMC1", "SMC3", "RAD21", "SCC3", "CBX3", 
+  #mentioned in manuscript
+  "SMC1A", 
+  #MommeD genes
+  "DNMT1", "SMARCA5", "HDAC1", "RLF", "TRIM28", "BAZ1B", "EIF3H", "SETDB1", "DNMT3B", "RIF1", "SMARCC1", 
+  "PBRM1", "WIZ", "SUV39H1", "SMARCA4", "UHRF1", "BRD1")
+
+summary.d4z4.interestinghits <-  summary.d4z4 %>% filter(genename %in% genes)
+
+```
+
+
+7. Spread the replicate data
+```{r}
+library(tidyr)
+summary.d4z4 <- spread(summary.d4z4, sample, psuedoquant)
+summary.d4z4.nucleus <- spread(summary.d4z4.nucleus, sample, psuedoquant)
+summary.d4z4.interestixnghits <- spread(summary.d4z4.interestinghits, sample, psuedoquant)
+```
+
+
+8. Export files
+```{r}
+write.csv(summary.d4z4, file="/Volumes/homes/cold/sjaganna/projects/amy_proteomics/summary.d4z4.csv")
+write.csv(summary.d4z4.nucleus, file="/Volumes/homes/cold/sjaganna/projects/amy_proteomics/summary.d4z4.nucleus.csv")
+write.csv(summary.d4z4.interestinghits, file= "/Volumes/homes/cold/sjaganna/projects/amy_proteomics/summary.d4z4.interestinghits.csv")
+```
